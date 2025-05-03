@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<!-- Set the theme mode on the HTML element -->
+<html lang="en" data-bs-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Book Club Reading Schedule</title>
+
+  <!-- Bootstrap CSS for styling and layout -->
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+    integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT3zVfLh+M6exXbDvJcJ2Ddy"
+    crossorigin="anonymous"
+  />
+  <!-- Bootstrap Icons for the theme toggle button -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+  <!-- Libraries for PDF export functionality -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+  <style>
+    /* Hide elements with .hidden class */
+    .hidden {
+      display: none;
+    }
+    /* Add space below the title in PDF output */
+    #displayBookTitleForPdf {
+      margin-bottom: 15px;
+    }
+    /* Adjust table font size for PDF readability */
+    #scheduleTable {
+       font-size: 0.9rem;
+    }
+
+    /* Align the theme toggle button icon with text */
+    #themeToggleBtn .bi {
+        vertical-align: -.125em;
+        margin-right: 0.3em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container py-4">
+    <!-- Header with title and theme toggle button -->
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap">
+        <h1 class="text-center flex-grow-1">📚 Book Club Reading Schedule</h1>
+        <!-- Theme Toggle Button positioned at top right -->
+        <button id="themeToggleBtn" class="btn btn-outline-secondary ms-3" onclick="toggleTheme()" title="Toggle theme">
+            <!-- Icon will be dynamically set by JavaScript -->
+            <i class="bi"></i> <span class="d-none d-sm-inline">Toggle Theme</span>
+        </button>
+    </div>
+
+    <!-- Input form for book and schedule details -->
+    <div class="row g-3">
+      <!-- Book Title input -->
+      <div class="col-12 col-md-6">
+        <label for="bookTitle" class="form-label">Book Title</label>
+        <input type="text" id="bookTitle" class="form-control" />
+      </div>
+
+      <!-- Meetup Date input -->
+      <div class="col-12 col-md-6">
+        <label for="meetupDate" class="form-label">Meetup Date</label>
+        <input type="date" id="meetupDate" class="form-control" />
+      </div>
+
+      <!-- Optional Start Date input -->
+      <div class="col-12 col-md-6">
+        <label for="startDate" class="form-label">Start Reading On (optional)</label>
+        <input type="date" id="startDate" class="form-control" />
+      </div>
+
+      <!-- Total Pages input -->
+      <div class="col-12 col-md-6">
+        <label for="totalPages" class="form-label">Total Pages</label>
+        <input type="number" id="totalPages" class="form-control" min="1" />
+      </div>
+
+      <!-- Current Page input -->
+      <div class="col-12 col-md-6">
+        <label for="currentPage" class="form-label">Current Page</label>
+        <input type="number" id="currentPage" class="form-control" value="0" min="0"/>
+      
+      <!-- Option to finish early checkbox -->
+      <div class="col-12">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="finishEarly">
+          <label class="form-check-label" for="finishEarly">
+            Finish reading one day before the book club meeting
+          </label>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Action buttons -->
+    <div class="mt-4 d-flex gap-3 flex-wrap">
+      <button class="btn btn-primary" onclick="generateSchedule()">Generate Schedule</button>
+      <button class="btn btn-outline-secondary" onclick="resetInputs()">Reset</button>
+      <button class="btn btn-success" onclick="exportCSV()">Export CSV</button>
+      <button class="btn btn-danger" onclick="exportPDF()">Export PDF</button>
+      <button class="btn btn-warning" onclick="exportMarkdown()">Export Markdown</button>
+      <!-- Theme toggle button was moved up to header -->
+    </div>
+
+    <!-- Hidden element specifically for PDF export -->
+    <div id="pdfExportContent" style="position: absolute; left: -9999px; top: auto; background-color: white; padding: 20px;">
+        <h2 id="displayBookTitleForPdf"></h2>
+        <div id="tableContainerForPdf">
+            <!-- Table content will be copied here for PDF export -->
+        </div>
+    </div>
+
+    <!-- Book title display (shown after schedule generation) -->
+    <h2 id="displayBookTitle" class="mt-5 hidden"></h2>
+
+    <!-- Reading schedule table container (shown after generation) -->
+    <div id="tableContainer" class="table-responsive hidden mt-3">
+      <table id="scheduleTable" class="table table-bordered table-striped">
+        <thead class="table-light">
+          <tr>
+            <th>Day</th>
+            <th>Date</th>
+            <th>Pages to Read</th>
+            <th>Cumulative Pages</th>
+            <th>Percentage Complete</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // --- DOM Element References ---
+    // Store references to frequently accessed DOM elements to avoid repeated queries
+    const bookTitleInput = document.getElementById("bookTitle");
+    const meetupDateInput = document.getElementById("meetupDate");
+    const totalPagesInput = document.getElementById("totalPages");
+    const currentPageInput = document.getElementById("currentPage");
+    const displayBookTitle = document.getElementById("displayBookTitle");
+    const tableContainer = document.getElementById("tableContainer");
+    const scheduleTable = document.getElementById("scheduleTable");
+    const scheduleTableBody = scheduleTable.querySelector("tbody");
+    const themeToggleBtn = document.getElementById('themeToggleBtn');
+    const htmlEl = document.documentElement; // Target <html> element for theme switching
+
+    // --- Theme Switcher Logic ---
+    // Constants for icon classes to use in theme toggle button
+    const sunIconClass = 'bi-sun-fill';
+    const moonIconClass = 'bi-moon-stars-fill';
+
+    /**
+     * Sets the application theme (light or dark)
+     * @param {string} theme - The theme to set ('light' or 'dark')
+     */
+    function setTheme(theme) {
+        const iconElement = themeToggleBtn.querySelector('.bi');
+        if (theme === 'dark') {
+            htmlEl.setAttribute('data-bs-theme', 'dark');
+            iconElement.className = `bi ${moonIconClass}`; // Set moon icon for dark theme
+            themeToggleBtn.setAttribute('title', 'Switch to light mode');
+        } else {
+            // Default to light if theme is not 'dark'
+            htmlEl.setAttribute('data-bs-theme', 'light');
+            iconElement.className = `bi ${sunIconClass}`;  // Set sun icon for light theme
+            themeToggleBtn.setAttribute('title', 'Switch to dark mode');
+        }
+        localStorage.setItem('theme', theme); // Save user preference to localStorage
+    }
+
+    /**
+     * Toggles between light and dark themes
+     */
+    function toggleTheme() {
+        const currentTheme = htmlEl.getAttribute('data-bs-theme') || 'light';
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        setTheme(newTheme);
+    }
+
+    /**
+     * Initializes theme based on user preference or system setting
+     */
+    function initializeTheme() {
+        const savedTheme = localStorage.getItem('theme');
+        const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        // Use saved theme > OS preference > default light
+        // Validate saved theme value before using
+        const validThemes = ['light', 'dark'];
+        const initialTheme = validThemes.includes(savedTheme) ? savedTheme : (prefersDark ? 'dark' : 'light');
+        setTheme(initialTheme); // Apply the theme on load
+
+        // Listen for OS theme changes ONLY IF no user preference is saved
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => {
+            if (!localStorage.getItem('theme')) { // Check if user has already set a theme
+                setTheme(event.matches ? 'dark' : 'light');
+            }
+        });
+    }
+
+    // --- Schedule Logic ---
+    // Initialize app when DOM is fully loaded
+    document.addEventListener("DOMContentLoaded", () => {
+      initializeTheme(); // Set theme first
+      loadSchedule();    // Then load any saved schedule from localStorage
+    });
+
+    /**
+     * Generates the reading schedule based on form inputs
+     */
+    function generateSchedule() {
+      // Get and parse form values
+      const bookTitle = bookTitleInput.value;
+      const meetupDateStr = meetupDateInput.value; // "YYYY-MM-DD"
+      const totalPages = parseInt(totalPagesInput.value);
+      const currentPage = parseInt(currentPageInput.value);
+      const today = new Date(); // Today's date, local time
+      const finishEarly = document.getElementById("finishEarly").checked;
+      const startDateStr = document.getElementById("startDate").value;
+      const startDate = startDateStr ? new Date(startDateStr + "T00:00:00") : new Date();
+      startDate.setHours(0, 0, 0, 0); // Normalize to start of day
+
+      scheduleTableBody.innerHTML = ""; // Clear previous schedule
+
+      // --- Input Validation ---
+      // Combine validation checks for better error handling
+      let validationError = null;
+      if (!bookTitle) validationError = "Book Title is required.";
+      else if (!meetupDateStr) validationError = "Meetup Date is required.";
+      else if (isNaN(totalPages) || totalPages <= 0) validationError = "Total Pages must be a number greater than 0.";
+      else if (isNaN(currentPage) || currentPage < 0) validationError = "Current Page must be a number, 0 or greater.";
+
+      if (validationError) {
+          alert(`Invalid Input: ${validationError}`);
+          displayBookTitle.classList.add("hidden");
+          tableContainer.classList.add("hidden");
+          return;
+      }
+
+      // --- Date Handling ---
+      // Parse meetup date from input string
+      const [year, month, day] = meetupDateStr.split('-').map(Number);
+      const meetupDate = new Date(year, month - 1, day); // Local midnight (months are 0-indexed in JS)
+      
+      // Validate date relationships
+      if (meetupDate <= startDate) {
+        alert("Meetup date must be after the start date.");
+        alert("Meetup date cannot be in the past.");
+        displayBookTitle.classList.add("hidden");
+        tableContainer.classList.add("hidden");
+        return;
+      }
+
+      // Check if book is already finished
+      if (currentPage >= totalPages) {
+        alert("Current page is greater than or equal to total pages. Book finished or invalid input.");
+        displayBookTitle.classList.add("hidden");
+        tableContainer.classList.add("hidden");
+        return;
+      }
+
+      // --- Schedule Calculation ---
+      const pagesRemaining = totalPages - currentPage;
+      
+      // Adjust meetup date if finishing early option is selected
+      let adjustedMeetupDate = new Date(meetupDate);
+      if (finishEarly) {
+        adjustedMeetupDate.setDate(adjustedMeetupDate.getDate() - 1);
+      }
+      
+      // Calculate days until meetup and pages per day
+      const timeDiff = adjustedMeetupDate.getTime() - startDate.getTime();
+      const daysRemaining = Math.max(1, Math.ceil(timeDiff / (1000 * 60 * 60 * 24)) + 1);
+      const pagesPerDay = Math.ceil(pagesRemaining / daysRemaining);
+
+      // --- Generate Daily Reading Schedule ---
+      let cumulativePages = currentPage;
+      let dayCount = 1;
+      let currentDate = new Date(startDate); // Start iterating from start date
+      currentDate.setHours(0, 0, 0, 0);
+
+      // Loop through each day until meetup or book completion
+      while (cumulativePages < totalPages && currentDate.getTime() <= adjustedMeetupDate.getTime()) {
+        let pagesToReadToday = 0;
+
+        // Determine pages for today, ensuring not to exceed total pages
+        if (cumulativePages + pagesPerDay >= totalPages) {
+            pagesToReadToday = totalPages - cumulativePages;
+        } else {
+            pagesToReadToday = pagesPerDay;
+        }
+        // Ensure pagesToReadToday is not negative (safety check)
+        pagesToReadToday = Math.max(0, pagesToReadToday);
+
+        // Only add row if there are pages to read for this day
+        if (pagesToReadToday > 0) {
+             cumulativePages += pagesToReadToday;
+             const percentageComplete = ((cumulativePages / totalPages) * 100).toFixed(2);
+
+             // Create and populate table row
+             const row = scheduleTableBody.insertRow(); // Use insertRow for efficiency
+             row.innerHTML = `
+               <td>${dayCount}</td>
+               <td>${currentDate.toDateString()}</td>
+               <td>${pagesToReadToday}</td>
+               <td>${cumulativePages}</td>
+               <td>${percentageComplete}%</td>
+             `;
+             dayCount++; // Increment day count only when a reading day is added
+        } else if (cumulativePages >= totalPages) {
+             // Break if book finished, even if loop might continue
+             break;
+        }
+
+        // Advance date for next loop iteration
+        currentDate.setDate(currentDate.getDate() + 1);
+
+        // Safety break: prevent infinite loop if calculation error leads to no progress
+        if (dayCount > daysRemaining + 10) { // Added buffer to prevent infinite loop
+            console.error("Schedule generation loop exceeded expected days significantly. Breaking.");
+            alert("An issue occurred generating the schedule (possible loop). Please check inputs or report the issue.");
+            scheduleTableBody.innerHTML = ""; // Clear partial/incorrect schedule
+            displayBookTitle.classList.add("hidden");
+            tableContainer.classList.add("hidden");
+            return; // Exit function
+        }
+      }
+
+      // --- Final Check: Handle Any Remaining Pages ---
+      // If rounding caused last page(s) to be missed, add them to last day
+      if (cumulativePages < totalPages && scheduleTableBody.lastChild) {
+            const lastRowCells = scheduleTableBody.lastChild.cells;
+            // Get pages already assigned to the last day in the table
+            const pagesAlreadyAssignedLastDay = parseInt(lastRowCells[2].innerText);
+            // Calculate how many pages are *still* remaining
+            const remainingToAssign = totalPages - cumulativePages;
+
+            if(remainingToAssign > 0) {
+                 lastRowCells[2].innerText = pagesAlreadyAssignedLastDay + remainingToAssign; // Add remaining to last day
+                 lastRowCells[3].innerText = totalPages; // Set cumulative to total
+                 lastRowCells[4].innerText = "100.00%"; // Set percentage to 100
+                 cumulativePages = totalPages; // Update variable state as well
+            }
+      }
+
+      // --- Display & Save Results ---
+      if (scheduleTableBody.children.length > 0) {
+            // Show schedule and book title
+            displayBookTitle.textContent = `📘 Reading Plan for: "${bookTitle}"`;
+            displayBookTitle.classList.remove("hidden");
+            tableContainer.classList.remove("hidden");
+            // Save to localStorage for persistence
+            saveSchedule(bookTitle, meetupDateStr, totalPages, currentPage);
+      } else if (currentPage < totalPages) {
+            // Handle edge case where no schedule rows were generated
+            alert("Could not generate a visible schedule. This might happen if the reading is completed today or there's an issue with the dates/pages.");
+            displayBookTitle.classList.add("hidden");
+            tableContainer.classList.add("hidden");
+      } else {
+            // Book already finished case
+            displayBookTitle.classList.add("hidden");
+            tableContainer.classList.add("hidden");
+      }
+    }
+
+    /**
+     * Resets the form and clears the saved schedule
+     */
+    function resetInputs() {
+      // Clear all form inputs
+      bookTitleInput.value = "";
+      meetupDateInput.value = "";
+      totalPagesInput.value = "";
+      currentPageInput.value = "0";
+      // Hide results
+      tableContainer.classList.add("hidden");
+      displayBookTitle.classList.add("hidden");
+      scheduleTableBody.innerHTML = ""; // Clear table content
+      // Remove from localStorage
+      localStorage.removeItem("bookClubSchedule");
+      // Note: Theme preference is kept even on reset
+    }
+
+    /**
+     * Saves schedule data to localStorage
+     * @param {string} bookTitle - The book title
+     * @param {string} meetupDateString - The meetup date string (YYYY-MM-DD)
+     * @param {number} totalPages - Total pages in the book
+     * @param {number} currentPage - Current page read
+     */
+    function saveSchedule(bookTitle, meetupDateString, totalPages, currentPage) {
+      const schedule = { bookTitle, meetupDate: meetupDateString, totalPages, currentPage };
+      localStorage.setItem("bookClubSchedule", JSON.stringify(schedule));
+    }
+
+    /**
+     * Loads schedule data from localStorage
+     */
+    function loadSchedule() {
+      const savedSchedule = localStorage.getItem("bookClubSchedule");
+      if (savedSchedule) {
+        try {
+            const { bookTitle, meetupDate, totalPages, currentPage } = JSON.parse(savedSchedule);
+            // Validate loaded data
+            if (typeof bookTitle !== 'string' || typeof meetupDate !== 'string' ||
+                typeof totalPages !== 'number' || totalPages <= 0 ||
+                typeof currentPage !== 'number' || currentPage < 0 ||
+                !/^\d{4}-\d{2}-\d{2}$/.test(meetupDate)) {
+                 console.error("Invalid or incomplete schedule data found in localStorage. Clearing.");
+                 localStorage.removeItem("bookClubSchedule");
+                 return;
+            }
+            // Populate form with saved data
+            bookTitleInput.value = bookTitle;
+            meetupDateInput.value = meetupDate;
+            totalPagesInput.value = totalPages;
+            currentPageInput.value = currentPage;
+            // Use setTimeout to ensure theme is applied and DOM is ready
+            setTimeout(generateSchedule, 50); // Small delay to ensure consistent rendering
+        } catch (e) {
+             console.error("Error parsing schedule from localStorage:", e);
+             localStorage.removeItem("bookClubSchedule"); // Clear potentially corrupted data
+        }
+      }
+    }
+
+    // --- Export Functions ---
+    /**
+     * Creates a consistent filename base from the book title
+     * @returns {string} Sanitized filename
+     */
+    function getFilenameBase() {
+        const title = bookTitleInput.value.trim() || "book_club";
+        // Replace non-alphanumeric with underscore, clean up multiple underscores
+        return title.replace(/[^a-z0-9]+/gi, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
+    }
+
+    /**
+     * Exports the schedule as a CSV file
+     */
+    function exportCSV() {
+      // Check if there's a schedule to export
+      if (tableContainer.classList.contains("hidden") || !scheduleTableBody.children.length) {
+        alert("No schedule generated to export.");
+        return;
+      }
+      
+      // Build CSV content
+      let csv = [];
+      const headers = Array.from(scheduleTable.querySelectorAll("thead th")).map(th => `"${th.innerText.replace(/"/g, '""')}"`);
+      csv.push(headers.join(","));
+      
+      const rows = scheduleTableBody.querySelectorAll("tr");
+      rows.forEach(row => {
+        const cols = Array.from(row.querySelectorAll("td")).map(col => `"${col.innerText.replace(/"/g, '""')}"`);
+        csv.push(cols.join(","));
+      });
+      
+      // Create and trigger download
+      const blob = new Blob([csv.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const filename = `${getFilenameBase()}_schedule.csv`;
+      
+      const a = document.createElement("a");
+      a.style.display = "none";
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    /**
+     * Exports the schedule as a PDF file
+     */
+    async function exportPDF() {
+      // Check if there's a schedule to export
+      if (tableContainer.classList.contains("hidden") || !scheduleTableBody.children.length) {
+        alert("No schedule generated to export.");
+        return;
+      }
+      
+      // Check if required libraries are loaded
+      if (typeof window.jspdf === 'undefined' || typeof window.jspdf.jsPDF === 'undefined' || typeof html2canvas === 'undefined') {
+         alert("PDF export libraries not loaded.");
+         console.error("jsPDF or html2canvas not found.");
+         return;
+      }
+
+      const tableToCapture = document.getElementById('scheduleTable');
+      const titleText = displayBookTitle.textContent || "Book Club Schedule";
+      const currentTheme = htmlEl.getAttribute('data-bs-theme'); // Store current theme
+
+      // --- Temporarily force light theme for canvas capture ---
+      htmlEl.setAttribute('data-bs-theme', 'light');
+      // Allow DOM time to re-render with light theme styles
+      await new Promise(resolve => setTimeout(resolve, 100)); // Delay for rendering
+
+      let pdf; // Declare pdf variable outside try block
+      try {
+          // Capture table as canvas
+          const canvas = await html2canvas(tableToCapture, {
+              scale: 2, // Higher resolution
+              useCORS: true,
+              logging: false,
+              backgroundColor: '#ffffff' // Ensure canvas background is white
+          });
+
+          // --- Restore original theme after capture ---
+          if (currentTheme) {
+              htmlEl.setAttribute('data-bs-theme', currentTheme);
+          } else {
+               // If no theme was set initially, default back to light
+               htmlEl.setAttribute('data-bs-theme', 'light');
+          }
+
+          // --- Create PDF Document ---
+          const { jsPDF } = window.jspdf;
+          pdf = new jsPDF({ orientation: 'p', unit: 'pt', format: 'letter' });
+
+          const margin = 40;
+          const pdfWidth = pdf.internal.pageSize.getWidth();
+          const pdfHeight = pdf.internal.pageSize.getHeight();
+          const usableWidth = pdfWidth - margin * 2;
+          let yPosition = margin;
+
+          // Add Title to PDF
+          pdf.setFontSize(18);
+          const titleLines = pdf.splitTextToSize(titleText, usableWidth);
+          pdf.text(titleLines, margin, yPosition);
+          yPosition += (titleLines.length * pdf.getLineHeight("helvetica", "normal", 18)) + 15;
+
+          // Add Table Image to PDF
+          const imgData = canvas.toDataURL('image/png');
+          const imgProps = pdf.getImageProperties(imgData);
+          const imgWidth = usableWidth;
+          const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+          let heightLeft = imgHeight;
+          let imgStartY = 0; // Track position within source image
+
+          // Handle potential multi-page PDF
+          while (heightLeft > 0 && yPosition < pdfHeight - margin) {
+              let pageHeightAvailable = pdfHeight - yPosition - margin;
+              let currentChunkHeight = Math.min(heightLeft, pageHeightAvailable);
+
+              // Add image (current implementation adds whole image on each page)
+              pdf.addImage(imgData, 'PNG', margin, yPosition, imgWidth, imgHeight, undefined, 'FAST');
+
+              heightLeft -= currentChunkHeight;
+              yPosition += currentChunkHeight; // Update position for next element/page
+
+              if (heightLeft > 0) {
+                    pdf.addPage();
+                    yPosition = margin; // Reset y for new page
+                    
+                    // Safety check to prevent infinite loop
+                    if (yPosition === margin && heightLeft >= imgHeight - 1) {
+                        console.error("PDF generation stuck adding pages. Aborting.");
+                        break;
+                    }
+              }
+          }
+
+          // Save the PDF file
+          const filename = `${getFilenameBase()}_schedule.pdf`;
+          pdf.save(filename);
+
+      } catch (error) {
+          console.error("Error generating PDF:", error);
+          alert("An error occurred while generating the PDF. Check the console.");
+          
+          // Restore original theme in case of error
+          if (currentTheme) {
+              htmlEl.setAttribute('data-bs-theme', currentTheme);
+          } else {
+              htmlEl.setAttribute('data-bs-theme', 'light');
+          }
+      }
+    }
+
+    /**
+     * Exports the schedule as a Markdown file
+     */
+    function exportMarkdown() {
+      // Check if there's a schedule to export
+      if (tableContainer.classList.contains("hidden") || !scheduleTableBody.children.length) {
+        alert("No schedule generated to export.");
+        return;
+      }
+      
+      // Build markdown content
+      let md = `## ${displayBookTitle.textContent}\n\n`;
+      
+      const headers = Array.from(scheduleTable.querySelectorAll("thead th"));
+      const rows = scheduleTableBody.querySelectorAll("tr");
+      
+      // Create table header with column names
+      md += `| ${headers.map(th => th.innerText.trim().replace(/\|/g, '\\|')).join(' | ')} |\n`;
+      // Create table separator row
+      md += `| ${headers.map(() => '---').join(' | ')} |\n`;
+      
+      // Add table data rows
+      rows.forEach(row => {
+        const cols = Array.from(row.querySelectorAll("td"));
+        md += `| ${cols.map(td => td.innerText.trim().replace(/\|/g, '\\|')).join(' | ')} |\n`;
+      });
+      
+      // Create and trigger download
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const filename = `${getFilenameBase()}_schedule.md`;
+      
+      const a = document.createElement("a");
+      a.style.display = "none";
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  </script>
+</body>
+</html>
